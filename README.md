@@ -3,7 +3,7 @@ Suggestions API
 
 **Near match**
 
-    GET GET https://apicities.azurewebsites.net/suggestions/?q=Londo&latitude=43.70011&longitude=-79.4163
+    GET https://apicities.azurewebsites.net/suggestions/?q=Londo&latitude=43.70011&longitude=-79.4163
 
 ```json
 {
