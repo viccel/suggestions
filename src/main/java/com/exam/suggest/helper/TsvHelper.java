@@ -4,10 +4,10 @@ import com.exam.suggest.model.City;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.Reader;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -19,6 +19,68 @@ import java.util.stream.Collectors;
 @Slf4j
 public final class TsvHelper {
 
+    private final static String FILE_NAME = "./static/data/cities_canada-usa.tsv";
+    private final static String[] HEADERS = "id\tname\tascii\talt_name\tlat\tlong\tfeat_class\tfeat_code\tcountry\tcc2\tadmin1\tadmin2\tadmin3\tadmin4\tpopulation\televation\tdem\ttz\tmodified_at".split("\t");
+    private static List<CSVRecord> RECORDS = null;
+
+    /**
+     * Inicializa RECORDS.
+     */
+    static {
+        try {
+            RECORDS = getFileTsv();
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    /**
+     * Gets the RECORDS.
+     *
+     * @return Listado de CSVRecord del archivo.
+     */
+    public static List<CSVRecord> getRECORDS() {
+        return RECORDS;
+    }
+
+    public static List<CSVRecord> getFileTsv() throws IOException {
+        Resource resource = new ClassPathResource(FILE_NAME);
+        InputStream inputStream = resource.getInputStream();
+        Reader in = new InputStreamReader(inputStream);
+
+        List<CSVRecord> records = CSVFormat.DEFAULT.withDelimiter('\t').withEscape('\\').withHeader(HEADERS).withFirstRecordAsHeader().parse(in).getRecords().stream().collect(Collectors.toList());
+
+        return records;
+    }
+
+    /**
+     * Private constructor, no se puede instanciar.
+     */
+    private TsvHelper() {
+        throw new UnsupportedOperationException("No se puede instanciar");
+    }
+
+    public static List<City> getCitiesFrmHammingDist(final String cityName) {
+        List<City> cities = new ArrayList<>();
+        getRECORDS().forEach(record -> {
+            float score = scoreString1AString2(cityName, record.get("name"));
+
+            if (score >= 0.75f) {
+                City city = fillNewCity(record);
+                city.setScore(score);
+
+                cities.add(city);
+            }
+
+        });
+
+        List<City> orderedCities = cities.stream().
+                sorted(Comparator.comparingDouble(City::getScore).reversed())
+                .collect(Collectors.toList());
+
+        return orderedCities;
+    }
+
     /**
      * Obtiene el listado de ciudades sugeridas de acuerdo a las coincidencias y su score.
      *
@@ -29,51 +91,22 @@ public final class TsvHelper {
      * @return Lista de ciudades.
      * @throws IOException throws IOEXception.
      */
-    public static List<City> readTSVWithFilter(final String fileName, final String cityName,
-                                               final Float lng,
-                                               final Float lat) throws IOException {
+    public static List<City> readTSVWithFilter(final String fileName, final String cityName, final Float lng, final Float lat) throws IOException {
 
-        Reader in = new FileReader(fileName);
-        final String[] HEADERS = "id\tname\tascii\talt_name\tlat\tlong\tfeat_class\tfeat_code\tcountry\tcc2\tadmin1\tadmin2\tadmin3\tadmin4\tpopulation\televation\tdem\ttz\tmodified_at".split("\t");
-
-        List<CSVRecord> records = CSVFormat.DEFAULT.withDelimiter('\t').withEscape('\\')
-                .withHeader(HEADERS)
-                .withFirstRecordAsHeader()
-                .parse(in)
-                .getRecords()
-                .stream().filter(record -> record.get("name").toLowerCase().contains(cityName.toLowerCase()))
-                .collect(Collectors.toList());
+        List<CSVRecord> records = getRECORDS().stream().filter(record -> record.get("name").toLowerCase().contains(cityName.toLowerCase())).collect(Collectors.toList());
 
         List<City> cities = new ArrayList<>();
-        double distanciaDosGPS1 = distanciaDosGPS(51.5f, 0f, 38.8f, -77.1f);
-        log.info("distancia: {}", distanciaDosGPS1);
 
         records.forEach((record) -> {
-            String stateCode = record.get("admin1");
-            String countryCode = record.get("country");
-            String cName = record.get("name").concat(", ").concat(stateCode).concat(", ").concat(countryCode);
-            String strlat = record.get("lat");
-            String strLong = record.get("long");
+            City city = fillNewCity(record);
 
-            Float rLat = Float.parseFloat(strlat);
-            Float rLong = Float.parseFloat(strLong);
-
-            double distanciaDosGPS = distanciaDosGPS(rLat, rLong, lat, lng);
-            log.info("distanciaDosGPS: {}", distanciaDosGPS);
-
-            City city = new City();
-            city.setName(cName);
-            city.setLatitude(rLat);
-            city.setLongitude(rLong);
+            double distanciaDosGPS = distanciaDosGPS(city.getLatitude(), city.getLongitude(), lat, lng);
             city.setDistance(distanciaDosGPS);
-
             cities.add(city);
 
         });
 
-        List<City> orderedCities = cities.stream()
-                .sorted(Comparator.comparingDouble(City::getDistance))
-                .collect(Collectors.toList());
+        List<City> orderedCities = cities.stream().sorted(Comparator.comparingDouble(City::getDistance)).collect(Collectors.toList());
 
         if (orderedCities.size() > 0) {
             double distance = orderedCities.get(0).getDistance();
@@ -90,12 +123,6 @@ public final class TsvHelper {
         return orderedCities;
     }
 
-    /**
-     * Private constructor, no se puede instanciar.
-     */
-    private TsvHelper() {
-        throw new UnsupportedOperationException("No se puede instanciar");
-    }
 
     /**
      * Convertir grados a radianes.
@@ -117,8 +144,7 @@ public final class TsvHelper {
      * @param lng2 longitud del punto 2.
      * @return double que representa la distancia entre los dos puntos.
      */
-    private static double distanciaDosGPS(final Float lat1, final Float lng1, final Float lat2,
-                                          final Float lng2) {
+    private static double distanciaDosGPS(final Float lat1, final Float lng1, final Float lat2, final Float lng2) {
         final float radioTierra = 6378.4f;
 
         final double dLat = gradoARadianes(lat2 - lat1);
@@ -127,8 +153,7 @@ public final class TsvHelper {
         final double lat1Rdn = gradoARadianes(lat1);
         final double lat2Rdn = gradoARadianes(lat2);
 
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1Rdn) * Math.cos(lat2Rdn);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1Rdn) * Math.cos(lat2Rdn);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return radioTierra * c;
     }
@@ -174,5 +199,75 @@ public final class TsvHelper {
         }
 
         return score;
+    }
+
+    /**
+     * Obtiene una porcentaje de caracteres coincididos en la misma posición.
+     *
+     * @param str1 Cadena sobre la cual se contextualiza el match.
+     * @param str2 Cadena a probar.
+     * @return float score.
+     */
+    public static float scoreString1AString2(final String str1, final String str2) {
+
+        String tokens[] = str2.toLowerCase().split("[,\\s+|\\s+]");
+        float mxChrsMatched = 0;
+
+        for (String token : tokens) {
+            if (!token.isEmpty()) {
+
+                int maches = 0;
+                int limit = 0;
+
+                if (str1.length() > token.length()) {
+                    limit = token.length();
+                } else if (token.length() > str1.length()) {
+                    limit = str1.length();
+                } else {
+                    limit = str1.length();
+                }
+
+                for (int i = 0; i < limit; i++) {
+
+                    if (token.charAt(i) == str1.toLowerCase().charAt(i)) {
+                        maches += 1;
+                    }
+
+                }
+
+                if (mxChrsMatched < maches) {
+                    mxChrsMatched = maches;
+                }
+
+            }
+        }
+
+        int len = str1.length();
+        float cociente = mxChrsMatched / len;
+        return cociente;
+    }
+
+    /**
+     * Llena una una instancia de City con algunos datos de un Record.
+     *
+     * @param record SCVRecord de un archivo CSV o TSV.
+     * @return City intance con valores.
+     */
+    private static City fillNewCity(final CSVRecord record) {
+        String stateCode = record.get("admin1");
+        String countryCode = record.get("country");
+        String cName = record.get("name").concat(", ").concat(stateCode).concat(", ").concat(countryCode);
+        String strlat = record.get("lat");
+        String strLong = record.get("long");
+
+        Float lat = Float.parseFloat(strlat);
+        Float lng = Float.parseFloat(strLong);
+
+        City city = new City();
+        city.setName(cName);
+        city.setLatitude(lat);
+        city.setLongitude(lng);
+
+        return city;
     }
 }

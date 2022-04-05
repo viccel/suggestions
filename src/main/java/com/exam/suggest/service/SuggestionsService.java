@@ -6,11 +6,6 @@ import com.exam.suggest.response.AutoCompleteSuggestionsResponse;
  * Fakade of Suggestions Service.
  */
 public interface SuggestionsService {
-    /**
-     * @param cityName Complete or partial term (City name).
-     * @return List<City>: Cities's list.
-     */
-    AutoCompleteSuggestionsResponse autoCompleteSuggestionsCity(String cityName);
 
     /**
      * @param cityName Complete or partial term (City name).
